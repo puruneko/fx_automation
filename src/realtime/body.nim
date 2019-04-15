@@ -224,7 +224,7 @@ proc innerSigmaOscilator(inds: Indicators, itr: int, args: IndicatorArgument): f
   let periodShort = parseInt(args["periodShort"])
   if itr < periodLong and itr < periodShort:
     return NaN
-  let noTrendIndicator = lc[x[0]-x[1] | (x <- zip(inds[args["targetIndicator"]].rolling(itr, periodLong), inds[args["refIndicator"]].rolling(itr, periodLong))), float].removeBias()
+  let noTrendIndicator = lc[x[0]-x[1] | (x <- zip( inds[args["targetIndicator"]].rolling(itr, periodLong), inds[args["refIndicator"]].rolling(itr, periodLong))), float].removeBias()
   let sgmCoef = parseFloat(args["sgmCoef"])
   let sgm = noTrendIndicator.sgm()
   let sgmCount = lc[0 | (x <- noTrendIndicator.rolling(noTrendIndicator.len-1, periodShort), x < sgm*sgmCoef), float].len
