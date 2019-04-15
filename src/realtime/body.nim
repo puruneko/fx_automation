@@ -14,13 +14,14 @@ import "./indicator"
 import "./trade"
 import "./tactics"
 import "./utils"
+import "./extraMath"
 import "./phaseTimer"
 
 ########### body constant
 const tradeFalg = true
-const histricalPath = r"./../../resources/DAT_ASCII_EURUSD_M1_2007.csv"
-let loadHistorical_start = 0#100000
-let loadNum = int(25000 * 0.25)
+const histricalPath = r"./../../resources/DAT_ASCII_EURUSD_M1_2010.csv"
+let loadHistorical_start = 25000
+let loadNum = int(25000 * 1.0)
 let loadHistorical_end = loadHistorical_start + loadNum
 
 ########### simulation constant override
@@ -30,7 +31,7 @@ pips = 0.0001
 tradeSpread = 5*pips
 
 ########### tactics constant
-let lossCut = 10*pips
+let lossCut = 25*pips
 
 let maPeriod = 8
 let mapPeriod = 32
@@ -38,7 +39,8 @@ let masPeriod = 128#180
 let mamPeriod = 512
 let malPeriod = 1024
 let mavPeriod = 4096
-let divPeriod = 4
+let magPeriod = 8192
+let divPeriod = 1
 let divDivPriod = 4
 let smoothPeriod = 128
 let smoothDivPeriod = 256
@@ -60,7 +62,32 @@ let shiftAf = 10
 
 ############
 proc maIndicator(inds: Indicators, itr: int, args: IndicatorArgument): float =
-  return inds[args["targetIndicator"]].ma(itr, parseInt(args["period"]))
+  let period = parseInt(args["period"])
+  if itr < period:
+    return NaN
+  return inds[args["targetIndicator"]].rolling(itr, period).ma()
+
+proc maLogIndicator(inds: Indicators, itr: int, args: IndicatorArgument): float =
+  let period = parseInt(args["period"])
+  if itr < period:
+    return NaN
+  return inds[args["targetIndicator"]].rolling(itr, period).uLn().ma().exp()
+
+proc lnIndicator(inds: Indicators, itr: int, args: IndicatorArgument): float =
+  return inds[args["targetIndicator"], itr].ln()
+
+proc signedLnIndicator(inds: Indicators, itr: int, args: IndicatorArgument): float =
+  return inds[args["targetIndicator"], itr].signedLn()
+
+proc diffOscillator(inds: Indicators, itr: int, args: IndicatorArgument): float =
+  return inds[args["targetIndicator1"], itr] - inds[args["targetIndicator2"], itr]
+
+proc lnDiffOscillator(inds: Indicators, itr: int, args: IndicatorArgument): float =
+  let period = parseInt(args["period"])
+  if itr < period:
+    return NaN
+  let name = args["targetIndicator"]
+  return (inds[name, itr]/inds[name, itr-period]).ln()
 
 proc divOscillator(inds: Indicators, itr: int, args: IndicatorArgument): float =
   return inds[args["targetIndicator"]].diff(itr, parseInt(args["period"]))
@@ -69,7 +96,7 @@ proc divMaxOscillator(inds: Indicators, itr: int, args: IndicatorArgument): floa
   let period = parseInt(args["period"])
   if itr < period:
     return NaN
-  return absMax(lc[x-inds[args["targetIndicator"]][itr] | (x <- inds[args["targetIndicator"]][itr-period+1..<itr]), float])
+  return absMax(lc[x-inds[args["targetIndicator"], itr] | (x <- inds[args["targetIndicator"]][itr-period+1..<itr]), float])
 
 proc divSigmaOscillator(inds: Indicators, itr: int, args: IndicatorArgument): float =
   if itr == 0:
@@ -77,6 +104,20 @@ proc divSigmaOscillator(inds: Indicators, itr: int, args: IndicatorArgument): fl
   let diff = inds[args["divOscillator"]][itr]
   return if abs(diff) >= inds[args["sigmaIndicator"]][itr]*parseFloat(args["coef"]): diff
           else: inds[args["selfIndicator"]][itr-1]
+
+proc lowestIndicator(inds: Indicators, itr: int, args: IndicatorArgument): float =
+  if itr == 0:
+    return inds[args["targetIndicator"], itr]
+  if inds[args["selfIndicator"]][itr-1] > inds[args["targetIndicator"], itr]:
+    return inds[args["targetIndicator"], itr]
+  return inds[args["selfIndicator"]][itr-1] + parseFloat(args["increase"])
+
+proc highestIndicator(inds: Indicators, itr: int, args: IndicatorArgument): float =
+  if itr == 0:
+    return inds[args["targetIndicator"], itr]
+  if inds[args["selfIndicator"]][itr-1] < inds[args["targetIndicator"], itr]:
+    return inds[args["targetIndicator"], itr]
+  return inds[args["selfIndicator"]][itr-1] - parseFloat(args["decrease"])
 
 proc sigmaIndicator(inds: Indicators, itr: int, args: IndicatorArgument): float =
   return inds[args["targetIndicator"]].sgm(itr, parseInt(args["period"]))
@@ -102,12 +143,12 @@ proc forceMcfOscillator(inds: Indicators, itr: int, args: IndicatorArgument): fl
 
 proc forceIntegralOscillator(inds: Indicators, itr: int, args: IndicatorArgument): float =
   if itr == 0:
-    return inds[args["targetIndicator"]][itr]
-  if inds[args["targetIndicator"]][itr-1] > 0 and inds[args["targetIndicator"]][itr] < 0:
+    return inds[args["targetIndicator"], itr]
+  if inds[args["targetIndicator"]][itr-1] > 0 and inds[args["targetIndicator"], itr] < 0:
     return 0.0
-  if inds[args["targetIndicator"]][itr-1] < 0 and inds[args["targetIndicator"]][itr] > 0:
+  if inds[args["targetIndicator"]][itr-1] < 0 and inds[args["targetIndicator"], itr] > 0:
     return 0.0
-  return inds["forceIntegral"][itr-1] + inds[args["targetIndicator"]][itr]
+  return inds["forceIntegral"][itr-1] + inds[args["targetIndicator"], itr]
 
 proc forceMcfIntegralOscillator(inds: Indicators, itr: int, args: IndicatorArgument): float =
   if itr == 0:
@@ -156,26 +197,38 @@ proc refSigmaDiffOscillator(inds: Indicators, itr: int, args: IndicatorArgument)
     return 0.0
   return refSgmO - refSgmU
 
-#[
-proc upTrendDetector(inds: Indicators, itr: int, args: IndicatorArgument): float =
-  let width = parseInt(args["width"])
+proc rangeCorrelation(inds: Indicators, itr: int, args: IndicatorArgument): float =
   let period = parseInt(args["period"])
-  let sequence = inds[args["targetIndicator"]].removeBias(itr, period)
-  let maxVal = max(sequence)
-  let minVal = min(sequence)
-  var upRange = 0
-  var upRangeMax = 0
-  for i in 1..<sequence.len:
-    if sequence[i-1]-sequence[i] > 0:
-      inc(upRange)
-      if upRange > upRangeMax:
-        upRangeMax = upRange
-    else:
-      upRange = 0
-  let coef = (maxVal-minVal)/float(upRangeMax)
-  let upWavelet = lc[minVal + float(x)*coef | (x <- 0..<upRangeMax), float]
-  for i in 0..<width:
-]#
+  if itr < period:
+    return NaN
+  let noTrendIndicator = lc[x[0]-x[1] | (x <- zip(inds[args["targetIndicator"]].rolling(itr, period), inds[args["refIndicator"]].rolling(itr, period))), float]
+  let sgmCoef = parseFloat(args["sgmCoef"])
+  let rangeWavelet = noTrendIndicator.limitedSequence(sgmCoef)
+  return noTrendIndicator.correlation(rangeWavelet)
+
+proc trendCorrelation(inds: Indicators, itr: int, args: IndicatorArgument): float =
+  let period = parseInt(args["period"])
+  if itr < period:
+    return NaN
+  let noTrendIndicator = lc[x[0]-x[1] | (x <- zip(inds[args["targetIndicator"]].rolling(itr, period), inds[args["refIndicator"]].rolling(itr, period))), float]
+  let sgmCoef = parseFloat(args["sgmCoef"])
+  let rLen = int(period)#inds[args["targetIndicator"]][itr-period+1..itr].limitedSequence(sgmCoef).len
+  let maxVal = max(noTrendIndicator)#max(inds[args["targetIndicator"]][itr-rLen+1..itr])
+  let minVal = min(noTrendIndicator)#min(inds[args["targetIndicator"]][itr-rLen+1..itr])
+  let coef = (maxVal-minVal)/float(rLen)
+  let trendWavelet = lc[minVal + float(x)*coef | (x <- 0..<rLen), float]
+  return noTrendIndicator.correlation(trendWavelet)
+
+proc innerSigmaOscilator(inds: Indicators, itr: int, args: IndicatorArgument): float =
+  let periodLong = parseInt(args["periodLong"])
+  let periodShort = parseInt(args["periodShort"])
+  if itr < periodLong and itr < periodShort:
+    return NaN
+  let noTrendIndicator = lc[x[0]-x[1] | (x <- zip(inds[args["targetIndicator"]].rolling(itr, periodLong), inds[args["refIndicator"]].rolling(itr, periodLong))), float].removeBias()
+  let sgmCoef = parseFloat(args["sgmCoef"])
+  let sgm = noTrendIndicator.sgm()
+  let sgmCount = lc[0 | (x <- noTrendIndicator.rolling(noTrendIndicator.len-1, periodShort), x < sgm*sgmCoef), float].len
+  return float(sgmCount)/float(periodShort)
 
 proc biasFactorIndicator(inds: Indicators, itr: int, args: IndicatorArgument): float =
   let period = parseInt(args["period"])
@@ -212,27 +265,37 @@ proc validCrossRangeIndicator(inds: Indicators, itr: int, args: IndicatorArgumen
   return inds[args["selfIndicator"]][itr-1]
 
 ###########
-proc sample_take(inds: Indicators, itr: int): DirectionType =
+proc sampleLong_take(inds: Indicators, itr: int): DirectionType =
   when tradeFalg:
-    if numericCross(inds["refSigmaDiffCP_ma_div"], itr) == 1:
+    if numericCross(inds["trendCorrelation_ma"], itr) == 1:
       return DirectionType.long
-    if numericCross(inds["refSigmaDiffCP_ma_div"], itr) == -1:
-    #if itr >= 1 and inds["limitedSigmaDiffL"][itr]-inds["limitedSigmaDiffL"][itr-1] <= -0.001:
-      return DirectionType.short
   return DirectionType.nop
 
-proc sample_release(inds: Indicators, itr: int, takeRecord: TradeRecord): DirectionType =
+proc sampleLong_release(inds: Indicators, itr: int, takeRecord: TradeRecord): DirectionType =
   when tradeFalg:
     let po = calcPayOff(takeRecord.point, inds["close"][itr], takeRecord.direction)
     if po <= -lossCut:
-      if takeRecord.direction == DirectionType.long and inds["close"][itr] < inds["mal"][itr]:
+      if inds["close"][itr] < inds["mal"][itr]:
         return reverseDirection(takeRecord.direction)
-      if takeRecord.direction == DirectionType.short and inds["close"][itr] > inds["mal"][itr]:
-        return reverseDirection(takeRecord.direction)
-    if numericCross(inds["refSigmaDiffCS_ma_div"], itr) != 0:
+    if numericCross(inds["trendCorrelation_ma"], itr) == -1:
       return reverseDirection(takeRecord.direction)
   return DirectionType.nop
-  
+
+proc sampleShort_take(inds: Indicators, itr: int): DirectionType =
+  when tradeFalg:
+    if numericCross(inds["trendCorrelation_ma"], itr) == -1:
+      return DirectionType.short
+  return DirectionType.nop
+
+proc sampleShort_release(inds: Indicators, itr: int, takeRecord: TradeRecord): DirectionType =
+  when tradeFalg:
+    let po = calcPayOff(takeRecord.point, inds["close"][itr], takeRecord.direction)
+    if po <= -lossCut:
+      if inds["close"][itr] > inds["mal"][itr]:
+        return reverseDirection(takeRecord.direction)
+    if numericCross(inds["trendCorrelation_ma"], itr) == 1:
+      return reverseDirection(takeRecord.direction)
+  return DirectionType.nop  
 
 ###############################################################
 
@@ -258,6 +321,9 @@ proc main(pt: var PhaseTimer) =
       inds.push("close", unsafeAddr(ohlc.close))
       inds.push("volume", unsafeAddr(ohlc.volume))
       #
+      #inds.push("highest", highestIndicator, &&{"targetIndicator": "high", "decrease": $(0.025*pips)}, &&{"display": $true})
+      #inds.push("lowest", lowestIndicator, &&{"targetIndicator": "low", "increase": $(0.025*pips)}, &&{"display": $true})
+      #
       inds.push("ma", maIndicator, &&{"targetIndicator": "close","period": $maPeriod}, &&{"display": $true})
       inds.push("map", maIndicator, &&{"targetIndicator": "close","period": $mapPeriod}, &&{"display": $true})
       inds.push("mas", maIndicator, &&{"targetIndicator": "close","period": $masPeriod}, &&{"display": $true})
@@ -268,10 +334,10 @@ proc main(pt: var PhaseTimer) =
       #inds.push("mcfm", mcfIndicator, &&{"period": $mcfmPeriod, "filterCoef": $mcfmFilterCoef, "interpoleCoef": $mcfInterpoleCoef})
       #inds.push("mcfl", mcfIndicator, &&{"period": $mcflPeriod, "filterCoef": $mcflFilterCoef, "interpoleCoef": $mcfInterpoleCoef})
       #
-      inds.push("map_div", divOscillator, &&{"targetIndicator": "map","period": $divPeriod}, &&{"display":"","position": "1"})
-      inds.push("mas_div", divOscillator, &&{"targetIndicator": "mas","period": $divPeriod}, &&{"display":"","position": "1"})
-      inds.push("mam_div", divOscillator, &&{"targetIndicator": "mam","period": $divPeriod}, &&{"display": "","position": "1"})
-      inds.push("mal_div", divOscillator, &&{"targetIndicator": "mal","period": $divPeriod}, &&{"display": "","position": "1"})
+      #inds.push("map_div", divOscillator, &&{"targetIndicator": "map","period": $divPeriod}, &&{"display":"","position": "1"})
+      #inds.push("mas_div", divOscillator, &&{"targetIndicator": "mas","period": $divPeriod}, &&{"display": $true,"position": "1"})
+      #inds.push("mam_div", divOscillator, &&{"targetIndicator": "mam","period": $divPeriod}, &&{"display": "","position": "1"})
+      #inds.push("mal_div", divOscillator, &&{"targetIndicator": "mal","period": $divPeriod}, &&{"display": "","position": "1"})
       #inds.push("mcfs_div", divOscillator, &&{"targetIndicator": "mcfs","period": $divPeriod}, &&{"position": "2", "display": ""})
       #inds.push("mcfm_div", divOscillator, &&{"targetIndicator": "mcfm","period": $divPeriod}, &&{"position": "2", "display": ""})
       #inds.push("mcfl_div", divOscillator, &&{"targetIndicator": "mcfl","period": $divPeriod}, &&{"position": "2", "display": ""})
@@ -297,32 +363,44 @@ proc main(pt: var PhaseTimer) =
       #inds.push("upper", maIndicator, &&{"targetIndicator":"close", "period": "4"}, &&{"display": "false"})
       #inds.push("edgeMain", edgeIndicator, &&{"height": fmt"{10*pips}", "width": "10"})
       #inds.push("edgeHalf", edgeIndicator, &&{"height": fmt"{10*pips}", "width": "10", "judgeType": "half"})
-      ]#
       #inds.push("biasC", biasFactorIndicator, &&{"targetIndicator":"mas","period": $mapPeriod}, &&{"display": "", "position": "3", "oppositeAxis": "true"})
       #inds.push("biasP", biasFactorIndicator, &&{"targetIndicator":"mal","period": $mapPeriod}, &&{"display": "", "position": "3"})
       #inds.push("biasC_div", divOscillator, &&{"targetIndicator":"biasC","period": $divPeriod}, &&{"display": "", "position": "3", "oppositeAxis": "true"})
       #inds.push("biasP_div", biasFactorIndicator, &&{"targetIndicator":"biasP","period": $divPeriod}, &&{"display": "", "position": "3"})
+      #
       #inds.push("limitedSigmaDiffC", limitedSigmaDiffOscillator, &&{"targetIndicator":"close","period": $masPeriod}, &&{"display": $true, "position": "0", "oppositeAxis": "true"})
       #inds.push("limitedSigmaDiffS", limitedSigmaDiffOscillator, &&{"targetIndicator":"mas","period": $masPeriod}, &&{"display": $true, "position": "0", "oppositeAxis": "true"})
       #inds.push("limitedSigmaDiffL", limitedSigmaDiffOscillator, &&{"targetIndicator":"mal","period": $masPeriod}, &&{"display": $true, "position": "0", "oppositeAxis": "true"})
       inds.push("refSigmaDiffCP", refSigmaDiffOscillator, &&{"targetIndicator":"ma","refIndicator":"map" ,"period": $maPeriod}, &&{"display": "", "position": "0", "oppositeAxis": "true"})
       inds.push("refSigmaDiffCS", refSigmaDiffOscillator, &&{"targetIndicator":"ma","refIndicator":"mas" ,"period": $maPeriod}, &&{"display": "", "position": "0", "oppositeAxis": "true"})
       inds.push("refSigmaDiffPS", refSigmaDiffOscillator, &&{"targetIndicator":"map","refIndicator":"mas" ,"period": $maPeriod}, &&{"display": "", "position": "0", "oppositeAxis": "true"})
-      inds.push("refSigmaDiffCP_ma", maIndicator, &&{"targetIndicator":"refSigmaDiffCP","period": $maPeriod}, &&{"display": $true, "position": "0", "oppositeAxis": "true"})
-      inds.push("refSigmaDiffCS_ma", maIndicator, &&{"targetIndicator":"refSigmaDiffCS","period": $maPeriod}, &&{"display": $true, "position": "0", "oppositeAxis": "true"})
-      inds.push("refSigmaDiffPS_ma", maIndicator, &&{"targetIndicator":"refSigmaDiffPS","period": $maPeriod}, &&{"display": $true, "position": "0", "oppositeAxis": "true"})
-      inds.push("refSigmaDiffCP_ma_div", divMaxOscillator, &&{"targetIndicator":"refSigmaDiffCP_ma","period": $mapPeriod}, &&{"display": $true, "position": "1", "oppositeAxis": ""})
-      inds.push("refSigmaDiffCS_ma_div", divMaxOscillator, &&{"targetIndicator":"refSigmaDiffCS_ma","period": $mapPeriod}, &&{"display": $true, "position": "1", "oppositeAxis": ""})
-      inds.push("refSigmaDiffPS_ma_div", divMaxOscillator, &&{"targetIndicator":"refSigmaDiffPS_ma","period": $mapPeriod}, &&{"display": $true, "position": "1", "oppositeAxis": ""})
+      inds.push("refSigmaDiffCP_ma", maIndicator, &&{"targetIndicator":"refSigmaDiffCP","period": $maPeriod}, &&{"display": "", "position": "0", "oppositeAxis": "true"})
+      inds.push("refSigmaDiffCS_ma", maIndicator, &&{"targetIndicator":"refSigmaDiffCS","period": $maPeriod}, &&{"display": "", "position": "0", "oppositeAxis": "true"})
+      inds.push("refSigmaDiffPS_ma", maIndicator, &&{"targetIndicator":"refSigmaDiffPS","period": $maPeriod}, &&{"display": "", "position": "0", "oppositeAxis": "true"})
+      inds.push("refSigmaDiffCP_ma_div", divMaxOscillator, &&{"targetIndicator":"refSigmaDiffCP_ma","period": $mapPeriod}, &&{"display": "", "position": "1", "oppositeAxis": ""})
+      inds.push("refSigmaDiffCS_ma_div", divMaxOscillator, &&{"targetIndicator":"refSigmaDiffCS_ma","period": $mapPeriod}, &&{"display": "", "position": "1", "oppositeAxis": ""})
+      inds.push("refSigmaDiffPS_ma_div", divMaxOscillator, &&{"targetIndicator":"refSigmaDiffPS_ma","period": $mapPeriod}, &&{"display": "", "position": "1", "oppositeAxis": ""})
+      ]#
       #
-    
+      inds.push("rangeCorrelation", rangeCorrelation, &&{"targetIndicator": "close", "refIndicator": "mas", "period": $magPeriod, "sgmCoef": "0.5"}, &&{"display": "", "position": "0", "oppositeAxis": "true"})
+      inds.push("trendCorrelation", trendCorrelation, &&{"targetIndicator": "close", "refIndicator": "mas", "period": $magPeriod, "sgmCoef": "0.5"}, &&{"display": "", "position": "0", "oppositeAxis": "true"})
+      #inds.push("trendCorrelationM", trendCorrelation, &&{"targetIndicator": "mav", "period": $magPeriod, "sgmCoef": "1.0"}, &&{"display": "", "position": "0", "oppositeAxis": "true"})
+      inds.push("rangeCorrelation_ma", maIndicator, &&{"targetIndicator": "rangeCorrelation", "period": $mamPeriod}, &&{"display": $true, "position": "0", "oppositeAxis": "true"})
+      inds.push("trendCorrelation_ma", maIndicator, &&{"targetIndicator": "trendCorrelation", "period": $mamPeriod}, &&{"display": $true, "position": "0", "oppositeAxis": "true"})
+      #inds.push("trendCorrelationM_ma", maIndicator, &&{"targetIndicator": "trendCorrelationM", "period": $mapPeriod}, &&{"display": $true, "position": "0", "oppositeAxis": "true"})
+      #inds.push("correctionDiff", diffOscillator, &&{"targetIndicator1": "rangeCorrelation_ma","targetIndicator2": "trendCorrelation_ma"}, &&{"display": $true, "position": "1"})
+      inds.push("innerSgm", innerSigmaOscilator, &&{"targetIndicator": "close", "refIndicator": "mas", "periodLong": $masPeriod, "periodShort": $mapPeriod, "sgmCoef": "1.0" }, &&{"display": $true, "position": "1"})
+      #
+
     # set tactics
     # take: ポジションを取るときの条件関数
     # rekease: ポジションを精算するときの条件関数
     # ※作ったtactics変数はtacticsesに格納する
     pt.phase("tactics settings"):
-      var sampleTrade = TradeTactics(take: sample_take, release: sample_release)
-      conditions["sampleTrade"] = sampleTrade
+      var sampleLongTrade = TradeTactics(take: sampleLong_take, release: sampleLong_release)
+      var sampleShortTrade = TradeTactics(take: sampleShort_take, release: sampleShort_release)
+      conditions["sampleLongTrade"] = sampleLongTrade
+      conditions["sampleShortTrade"] = sampleShortTrade
   
   pt.phase("trading"):
     execTrading(ohlc.time, inds, conditions, ".")

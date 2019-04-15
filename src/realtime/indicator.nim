@@ -12,6 +12,7 @@ import algorithm
 
 import "./core"
 import "./utils"
+import "./extraMath"
 import "./phaseTimer"
 
 type
@@ -23,11 +24,8 @@ type
 template argAdjustment[T](arg: T, errorValue:T, defaultValue: T): T =
   if arg == errorValue: defaultValue else: arg
 
-proc meanStatic*(sgnl: Indicator): float {.inline.} =
-  sum(sgnl)/float(sgnl.len)
-
-proc rolling*(ind: Indicator, period: int, itr: int): Rolling =
-  return ind[itr-period+1..itr]
+proc rolling*(ind: Indicator, itr: int, period: int): Rolling =
+  return ind[itr-period..itr]
 
 proc mean*(rolling: Rolling): float =
   return sum(rolling)/float(rolling.len)
@@ -35,28 +33,38 @@ proc mean*(rolling: Rolling): float =
 proc divide*(rolling: Rolling): float =
   return (rolling[rolling.len-1]-rolling[0])/float(rolling.len)
 
+proc ma*(ind: Indicator): float =
+  return ind.mean()
+
 proc ma*(ind: Indicator, itr: int, period: int): float =
   if itr < period:
     return NaN
-  return ind.rolling(period, itr).mean()
+  return ind.rolling(itr, period).mean()
+
+proc maDouble*(ind: Indicator, itr: int, period: int): float =
+  if itr < period:
+    return NaN
+  let rolling = ind.rolling(itr, period)
+  let avg = rolling.meanStatic()
+  return sqrt(lc[avg + x*x*sign(x) | (x <- rolling), float].mean())
 
 proc diff*(ind: Indicator, itr: int, period: int): float =
   if itr < period:
     return NaN
-  return ind.rolling(period, itr).divide()
+  return ind.rolling(itr, period).divide()
 
 proc sgm2*(ind: Indicator, itr: int = -1, period: int = -1): float =
-  let i = argAdjustment(itr, -1, ind.len)
+  let i = argAdjustment(itr, -1, ind.len-1)
   let p = argAdjustment(period, -1, ind.len)
-  if i < p or p <= 0:
+  if i+1 < p or p <= 0:
     return NaN
-  let avg = ind.rolling(p, i).mean()
-  return meanStatic(lc[pow((x-avg), 2.0) | (x <- ind.rolling(p, i)), float])
+  let avg = ind.rolling(i, p).mean()
+  return meanStatic(lc[pow((x-avg), 2.0) | (x <- ind.rolling(i, p)), float])
 
 proc sgm*(ind: Indicator, itr: int = -1, period: int = -1): float =
-  let i = argAdjustment(itr, -1, ind.len)
+  let i = argAdjustment(itr, -1, ind.len-1)
   let p = argAdjustment(period, -1, ind.len)
-  if i < p or p <= 0:
+  if i+1 < p or p <= 0:
     return NaN
   return sqrt(ind.sgm2(i, p))
 
@@ -68,11 +76,11 @@ proc count*(ind: Indicator, itr: int, period: int, condition: proc(x: float): bo
       inc(result)
 
 proc removeBias*(ind: Indicator, itr: int = -1, period: int = -1): Indicator =
-  let i = argAdjustment(itr, -1, ind.len)
+  let i = argAdjustment(itr, -1, ind.len-1)
   let p = argAdjustment(period, -1, ind.len)
-  if i < p:
+  if i+1 < p:
     return @[NaN]
-  let mean = ind[i-p+1..itr].meanStatic()
+  let mean = ind[i-p+1..i].meanStatic()
   return lc[x - mean | (x <- ind[i-p+1..i]), float]
 
 proc limitedSequence*(sequence: seq[float], sgmCoef: float = 1.0): seq[float] =
@@ -87,6 +95,18 @@ proc limitedOverSequence*(sequence: seq[float], sgmCoef: float = 1.0): seq[float
 
 proc dropNan*(ind: Indicator): Indicator =
   lc[x | (x <- ind, x != NaN), float]
+
+proc correlation*(longer: Indicator, shorter: Indicator): float =
+  let longer2 = longer[longer.len-shorter.len..<longer.len]
+  let shorter2 = adjustPower(shorter, longer2)
+  let longerAvg = longer2.meanStatic()
+  let shorterAvg = shorter2.meanStatic()
+  let longerSgm = longer2.sgm()
+  let shorterSgm = shorter2.sgm()
+  let mother = longerSgm*shorterSgm
+  for i in 0..<shorter2.len:
+    result += (longer2[i]-longerAvg)*(shorter2[i]-shorterAvg)
+  result /= float(shorter2.len)*mother
 
 proc detectEdge*(upper: Indicator, lower: Indicator, itr:int, edgeUnitHeight: float, edgeUnitHalfWidth: int, judgeType="full"): float =
   if itr < edgeUnitHalfWidth*2 + 1:
@@ -114,10 +134,6 @@ proc detectEdge*(upper: Indicator, lower: Indicator, itr:int, edgeUnitHeight: fl
         return lower[itr]
   return NaN
 
-proc adjustPower(sig: seq[float], ref_sig: seq[float]): seq[float] =
-  let coef1 = sqrt(meanStatic(lc[x*x | (x <- sig), float]))
-  let coef2 = sqrt(meanStatic(lc[x*x | (x <- ref_sig), float]))
-  return lc[x*coef2/coef1 | (x <- sig), float]
 proc raisedCosine(starts: float, ends: float, N: int): seq[float] =
   result.newSeq(N)
   let a = float(N) * 0.5

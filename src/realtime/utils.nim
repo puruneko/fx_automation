@@ -52,35 +52,3 @@ proc recordProcTime*(basePath: string, procTime: float) =
     let ns = nowString()
     let newLine = "\n"
     fp.write(fmt"{ns},{procTime}{newLine}")
-
-proc direction*(a: float, b: float): int =
-  if float(a) != float(b): int((b-a)/abs(b-a)) else: 0
-
-proc sign*(x: float): float =
-  x/abs(x)
-
-proc sign*(x: int): int =
-  int(float(x)/float(abs(x)))
-   
-proc uSqrt*(x: float): float =
-  return sign(x) * sqrt(abs(x))
-
-proc uLog10*(x: float): float =
-  return sign(x) * log10(abs(x))
-
-proc absMax*(x: openArray[float]): float =
-  result = -Inf
-  for y in x:
-    if result < abs(y):
-      result = y
-
-proc absMin*(x: openArray[float]): float =
-  result = +Inf
-  for y in x:
-    if result > abs(y):
-      result = y
-
-proc adjustFigure*(x: float, figure: float = 0.0): float =
-  if x == 0.0:
-    return 0.0
-  return x * pow(10.0, -log10(x).floor) * pow(10.0, figure)

@@ -93,11 +93,17 @@ proc newIndicators*(): Indicators =
   result.stg = initOrderedTable[string, IndicatorSettings]()
   result.adr = initTable[string, ptr Indicator]()
 
-proc `[]`*(inds: Indicators, label: string): Indicator =
+method `[]`*(inds: Indicators, label: string): Indicator {.base.} =
   return inds.val[label]
-  
+
+method `[]`*(inds: Indicators, label: string, itr: int): float {.base.} =
+  return inds.val[label][itr]
+
+method `[]`*(inds: Indicators, label: string, slice: HSlice): seq[float] {.base.} =
+  return inds.val[label][slice]
+
 # dynamic
-method push*(self: var Indicators, id: string, prc: IndicatorProc, arg: IndicatorArgument = emptyArgument, stg: IndicatorSettings = emptySetting): Indicators {.discardable.} =
+method push*(self: var Indicators, id: string, prc: IndicatorProc, arg: IndicatorArgument = emptyArgument, stg: IndicatorSettings = emptySetting): Indicators {.discardable, base.} =
   self.val[id] = newIndicator()
   self.prc[id] = prc
   self.arg[id] = arg
@@ -105,30 +111,30 @@ method push*(self: var Indicators, id: string, prc: IndicatorProc, arg: Indicato
   self.stg[id] = stg
 
 # static
-method push*(self: var Indicators, id: string, adr: ptr Indicator, stg: IndicatorSettings = emptySetting): Indicators{.discardable.} =
+method push*(self: var Indicators, id: string, adr: ptr Indicator, stg: IndicatorSettings = emptySetting): Indicators {.discardable, base.} =
   self.val[id] = newIndicator()
   self.adr[id] = adr
   self.stg[id] = stg
   self.stg[id]["updateSpecification"] = "static"
 
-method del*(self: var Indicators, id: string) =
+method del*(self: var Indicators, id: string) {.base.} =
   self.val.del(id)
   self.prc.del(id)
   self.stg.del(id)
   if self.adr.hasKey(id):
     self.adr.del(id)
 
-method addSettings*(self: var Indicators, id: string, stg: IndicatorSettings) =
+method addSettings*(self: var Indicators, id: string, stg: IndicatorSettings) {.base.} =
   for key, value in stg.pairs():
     self.stg[id][key] = value
 
-method update(self: var Indicators, id: string, itr: int, args: IndicatorArgument) =
+method update(self: var Indicators, id: string, itr: int, args: IndicatorArgument) {.base.} =
   self.val[id].add(self.prc[id](self, itr, args))
 
-method updateStatic(self: var Indicators, id: string, adr: ptr Indicator, itr: int) =
+method updateStatic(self: var Indicators, id: string, adr: ptr Indicator, itr: int) {.base.} =
   self.val[id].add(adr[][itr])
 
-method updateAll*(self: var Indicators, itr: int) =
+method updateAll*(self: var Indicators, itr: int) {.base.} =
   for key in self.val.keys():
     if self.stg[key].hasKey("updateSpecification") and self.stg[key]["updateSpecification"] == "static":
       self.updateStatic(key, self.adr[key], itr)

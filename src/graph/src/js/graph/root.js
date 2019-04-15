@@ -72,6 +72,7 @@ export default class Root extends React.Component {
         const promise = this.createHighchartsConfig(params)
         promise.then( (res) => {
             console.log('<--- clicked process')
+            this.toggleDrawerClose()
             this.setState({
                 draw: this.state.draw + 1,
                 graphParam: res,
@@ -84,7 +85,17 @@ export default class Root extends React.Component {
         })
     }
     handleDicardGraph(event) {
-        this.setState({draw: 0, graphParam: {mainSectionCoef: 4} })
+        delete this.state.graphParam
+        this.setState({
+            draw: 0,
+            graphParam: {
+                points: 0,
+                yAxis: [],
+                ySeries: [],
+                importParams: {},
+                subplot_number: 0,
+            },
+        })
     }
     handleRedrawGraph(event) {
         this.setState({
@@ -145,6 +156,11 @@ export default class Root extends React.Component {
                 ]
                 var points = 0
                 var subplot_number = 0
+                var xAxis = {
+                    type: 'datetime',
+                    tickInterval: 1,
+                    breaks: [],
+                }
                 var yAxis = []
                 var ySeries = []
     
@@ -216,7 +232,7 @@ export default class Root extends React.Component {
                                 marker: marker,
                                 dataGrouping: {
                                     units: groupingUnits
-                                }
+                                },
                             })
                             subplot_number = Math.max(subplot_number, parseInt(params.settings['position']))
                         }
@@ -241,6 +257,7 @@ export default class Root extends React.Component {
                                 enabled: true,
                             },
                             opposite: false,
+                            noYAxisAdjustment: true,
                         }
                         var mainYAxisFoward = {}
                         Object.assign(mainYAxisFoward, mainYAxisConfig)
@@ -267,6 +284,7 @@ export default class Root extends React.Component {
                                     enabled: true,
                                 },
                                 opposite: false,
+                                noYAxisAdjustment: true,
                             }
                             var subYAxisFoward = {}
                             Object.assign(subYAxisFoward, subYAxisConfig)
@@ -294,11 +312,18 @@ export default class Root extends React.Component {
                                 toFloat(line[i + 6 - 1])
                             ])
                         }
+                        if (date.getDay() == 5 && date.getHours() == 23 && date.getMinutes() == 59) {
+                            xAxis.breaks.push({
+                                from: date.getTime() + 1*60*1000,
+                                to: date.getTime() + (1*60*60*24*2)*1000, // 2 days [ms]
+                                breakSize: 1,
+                            })
+                        }
                     }
                 })
                 console.log('<-- chart object creating end')
     
-                resolve({points: points, yAxis: yAxis, ySeries: ySeries, subplot_number: subplot_number})
+                resolve({points: points, yAxis: yAxis, xAxis: xAxis, ySeries: ySeries, subplot_number: subplot_number})
             })
             .fail( function () {
                 console.error(`${path} open failed.`)
@@ -329,7 +354,11 @@ export default class Root extends React.Component {
                 <Button variant="outlined" onClick={this.toggleDrawerOpen}> Menu </Button>
             </header>
             <div style={{position: "absolute", top: {headerHeight}, height: `calc(95% - ${headerHeight})`, width: "95%", right: 0, bottom: 0, left: 0}}>
-                <Draw key={this.state.draw} draw={this.state.draw} graphParam={this.state.graphParam} />
+            {
+                this.state.draw != 0
+                ? <Draw key={this.state.draw} draw={this.state.draw} graphParam={this.state.graphParam} />
+                : <div></div>
+            }
             </div>
             <Drawer
                 anchor="left"

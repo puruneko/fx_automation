@@ -11,6 +11,7 @@ import strformat
 
 import "./core"
 import "./utils"
+import "./extraMath"
 
 var tradeSpread* = 5*pips
 
@@ -155,44 +156,48 @@ proc execTrading*(time: TimeSeries, inds: var Indicators, conditions: TradeTacti
   for name, condition in conditions.pairs():
     tradeRecordTable[name] = @[]
   #############################
-  for itr in countup(0, tradeLen-1):
-    # インジケータのアップデート
-    inds.updateAll(itr)
-    for name, condition in conditions.pairs():
-      # ポジションがない場合
-      if not positions.hasKey(name):
-        # ポジションを取れる条件下か計算
-        let take = condition.take(inds, itr)
-        # ポジションを取れる場合
-        if take != DirectionType.nop:
-          # 新しいポジションの作成
-          positions[name] = newTradePosition()
-          # ポジションの記録
-          recordTrade(tradeRecordTable[name],
-                      positions,
-                      name,
-                      time[itr],
-                      KindType.take,
-                      take,
-                      inds.val["close"][itr])
+  try:
+    for itr in countup(0, tradeLen-1):
+      # インジケータのアップデート
+      inds.updateAll(itr)
+      for name, condition in conditions.pairs():
+        # ポジションがない場合
+        if not positions.hasKey(name):
+          # ポジションを取れる条件下か計算
+          let take = condition.take(inds, itr)
+          # ポジションを取れる場合
+          if take != DirectionType.nop:
+            # 新しいポジションの作成
+            positions[name] = newTradePosition()
+            # ポジションの記録
+            recordTrade(tradeRecordTable[name],
+                        positions,
+                        name,
+                        time[itr],
+                        KindType.take,
+                        take,
+                        inds.val["close"][itr])
+          else:
+            tradeRecordTable[name].nop()
         else:
-          tradeRecordTable[name].nop()
-      else:
-        let release = condition.release(inds, itr, positions[name].take)
-        if release != DirectionType.nop:
-          recordTrade(tradeRecordTable[name],
-                      positions,
-                      name,
-                      time[itr],
-                      KindType.release,
-                      release,
-                      inds.val["close"][itr])
-          let benefit = payOff(payoff, positions, name)
-          echo(fmt"Paying off has be accomplished![{name}]")
-          echo(fmt"    (benefit: {int(benefit/pips)}[pips])(PROGRESS:{int(itr/tradeLen*100)}[%])")
-        else:
-          updateUnrealizedPoint(positions, name, inds.val["close"][itr])
-          tradeRecordTable[name].nop()
+          let release = condition.release(inds, itr, positions[name].take)
+          if release != DirectionType.nop:
+            recordTrade(tradeRecordTable[name],
+                        positions,
+                        name,
+                        time[itr],
+                        KindType.release,
+                        release,
+                        inds.val["close"][itr])
+            let benefit = payOff(payoff, positions, name)
+            echo(fmt"Paying off has be accomplished![{name}]")
+            echo(fmt"    (benefit: {int(benefit/pips)}[pips])(PROGRESS:{int(itr/tradeLen*100)}[%])")
+          else:
+            updateUnrealizedPoint(positions, name, inds.val["close"][itr])
+            tradeRecordTable[name].nop()
+  except:
+    echo(getCurrentExceptionMsg())
+    raise getCurrentException()
   let winPips = sum(lc[po.benefit | (po <- payoff), float])/pips
   let win = (lc[p.benefit | (p <- payOff, p.benefit > 0), float]).len
   echo(fmt"---|")

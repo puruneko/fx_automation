@@ -2,6 +2,7 @@
 
 import React from 'react'
 import Highstock from 'highcharts/highstock'
+import boost from 'highcharts/modules/boost'
 
 export default class Draw extends React.Component {
 
@@ -13,6 +14,7 @@ export default class Draw extends React.Component {
             this.state = {
                 draw: props.draw,
                 points: props.graphParam.points,
+                xAxis: props.graphParam.xAxis,
                 yAxis: props.graphParam.yAxis,
                 ySeries: props.graphParam.ySeries,
             }
@@ -59,7 +61,7 @@ export default class Draw extends React.Component {
                     })
                 }
             })
-            console.log(axisMax, axisMin)
+            console.log("xAxis  ", this.state.xAxis)
             const config = {
                 title: {
                         text: 'Sample'
@@ -73,8 +75,10 @@ export default class Draw extends React.Component {
                     floating: true
                 },
                 series: this.state.ySeries,
+                xAxis: this.state.xAxis,
+                //xAxis: { ordinal: true, },
                 yAxis: this.state.yAxis.map((axis, index) => {
-                    if (index < 2) {
+                    if (true) {
                         return axis
                     }
                     else {
@@ -123,5 +127,9 @@ export default class Draw extends React.Component {
 
     componentDidUpdate() {
         this.highchartUpdate()
+    }
+
+    componentWillUnmount() {
+        delete this.state
     }
 }
