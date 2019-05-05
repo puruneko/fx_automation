@@ -25,10 +25,7 @@ template argAdjustment[T](arg: T, errorValue:T, defaultValue: T): T =
   if arg == errorValue: defaultValue else: arg
 
 proc rolling*(ind: Indicator, itr: int, period: int): Rolling =
-  return ind[itr-period..itr]
-
-proc mean*(rolling: Rolling): float =
-  return sum(rolling)/float(rolling.len)
+  return ind[itr-period+1..itr]
 
 proc divide*(rolling: Rolling): float =
   return (rolling[rolling.len-1]-rolling[0])/float(rolling.len)
@@ -45,7 +42,7 @@ proc maDouble*(ind: Indicator, itr: int, period: int): float =
   if itr < period:
     return NaN
   let rolling = ind.rolling(itr, period)
-  let avg = rolling.meanStatic()
+  let avg = rolling.mean()
   return sqrt(lc[avg + x*x*sign(x) | (x <- rolling), float].mean())
 
 proc diff*(ind: Indicator, itr: int, period: int): float =
@@ -53,35 +50,12 @@ proc diff*(ind: Indicator, itr: int, period: int): float =
     return NaN
   return ind.rolling(itr, period).divide()
 
-proc sgm2*(ind: Indicator, itr: int = -1, period: int = -1): float =
-  let i = argAdjustment(itr, -1, ind.len-1)
-  let p = argAdjustment(period, -1, ind.len)
-  if i+1 < p or p <= 0:
-    return NaN
-  let avg = ind.rolling(i, p).mean()
-  return meanStatic(lc[pow((x-avg), 2.0) | (x <- ind.rolling(i, p)), float])
-
-proc sgm*(ind: Indicator, itr: int = -1, period: int = -1): float =
-  let i = argAdjustment(itr, -1, ind.len-1)
-  let p = argAdjustment(period, -1, ind.len)
-  if i+1 < p or p <= 0:
-    return NaN
-  return sqrt(ind.sgm2(i, p))
-
 proc count*(ind: Indicator, itr: int, period: int, condition: proc(x: float): bool = (proc(x:float): bool = true)): int =
   if itr < period:
     return 0
   for x in ind[itr-period+1..itr]:
     if condition(x):
       inc(result)
-
-proc removeBias*(ind: Indicator, itr: int = -1, period: int = -1): Indicator =
-  let i = argAdjustment(itr, -1, ind.len-1)
-  let p = argAdjustment(period, -1, ind.len)
-  if i+1 < p:
-    return @[NaN]
-  let mean = ind[i-p+1..i].meanStatic()
-  return lc[x - mean | (x <- ind[i-p+1..i]), float]
 
 proc limitedSequence*(sequence: seq[float], sgmCoef: float = 1.0): seq[float] =
   let s = sequence.removeBias()
@@ -95,18 +69,6 @@ proc limitedOverSequence*(sequence: seq[float], sgmCoef: float = 1.0): seq[float
 
 proc dropNan*(ind: Indicator): Indicator =
   lc[x | (x <- ind, x != NaN), float]
-
-proc correlation*(longer: Indicator, shorter: Indicator): float =
-  let longer2 = longer[longer.len-shorter.len..<longer.len]
-  let shorter2 = adjustPower(shorter, longer2)
-  let longerAvg = longer2.meanStatic()
-  let shorterAvg = shorter2.meanStatic()
-  let longerSgm = longer2.sgm()
-  let shorterSgm = shorter2.sgm()
-  let mother = longerSgm*shorterSgm
-  for i in 0..<shorter2.len:
-    result += (longer2[i]-longerAvg)*(shorter2[i]-shorterAvg)
-  result /= float(shorter2.len)*mother
 
 proc detectEdge*(upper: Indicator, lower: Indicator, itr:int, edgeUnitHeight: float, edgeUnitHalfWidth: int, judgeType="full"): float =
   if itr < edgeUnitHalfWidth*2 + 1:
@@ -134,85 +96,6 @@ proc detectEdge*(upper: Indicator, lower: Indicator, itr:int, edgeUnitHeight: fl
         return lower[itr]
   return NaN
 
-proc raisedCosine(starts: float, ends: float, N: int): seq[float] =
-  result.newSeq(N)
-  let a = float(N) * 0.5
-  let b = float(N) * 0.25
-  for i in 0..<N:
-    result[i] = (starts-ends) * (0.5 + 0.5*cos(PI*(float(i)-2.0*b+a)/(2.0*a))) + ends
-proc raisedCosineInterpolation(sgnl: seq[float], padding: int, marginRatio: float = 0.1): seq[float] =
-  let marginPoint = int(float(padding) * marginRatio)
-  let raisedPoint = padding - marginPoint
-  let pf = float(raisedPoint)
-  let a = pf * 0.5
-  let b = pf * 0.25
-  for j in 0..<padding:
-    result.add(sgnl[0])
-  for i in 1..<sgnl.len:
-    for j in 0..<raisedPoint:
-      result.add((sgnl[i-1]-sgnl[i]) * (0.5 + 0.5*cos(PI*(float(j)-2.0*b+a)/(2.0*a))) + sgnl[i])
-    for j in 0..<marginPoint:
-      result.add(sgnl[i])
-proc raisedCosineInterpolation2(sgnl: Indicator, padding: int, margin: float =0.1): seq[float] =
-  let margin_point = int(float(padding) * margin)
-  var dir = direction(sgnl[0], sgnl[1])
-  var dir_now: int
-  var itr_start = 0
-  var counter = 1
-  #for j in range(padding):
-  #  result.append(sgnl[0])
-  for i in 1..<sgnl.len:
-    dir_now = direction(sgnl[i-1], sgnl[i])
-    if dir_now == dir:
-      counter += 1
-    elif dir_now != dir or dir_now == 0:
-      let point = padding*counter
-      for r in raisedCosine(sgnl[itr_start], sgnl[i-1], point-margin_point):
-        result.add(r)
-      for j in 0..<margin_point:
-        result.add(sgnl[i-1])
-      dir = dir_now
-      counter = 1
-      itr_start = i-1
-  let i = len(sgnl)-1
-  let point = padding*(counter)
-  for r in raisedCosine(sgnl[itr_start], sgnl[i], point-margin_point):
-    result.add(r)
-  for j in 0..<margin_point:
-    result.add(sgnl[i])
-proc wFilter(w: seq[float], th: int = 16): seq[float] =
-  let wLen = w.len
-  result.newSeq(wLen)
-  for i in 0..<wLen:
-    if th <= i:
-      result[i] = 0
-    else:
-      result[i] = w[i]
-proc dct(ind: Indicator): seq[float] =
-  let N = float(ind.len)
-  result.newSeq(int(N))
-  let coef = sqrt(2.0/N)
-  for itr_k in 0..<int(N):
-    let k = float(itr_k)
-    for itr_n in 0..<int(N):
-      result[itr_k] += coef*ind[itr_n]*cos(PI/N*(float(itr_n)+0.5)*k)
-
-proc idct(ind: Indicator): seq[float] =
-  let N = float(ind.len)
-  result.newSeq(int(N))
-  let coef = sqrt(2.0/N)
-  for itr_k in 0..<int(N):
-    let k = float(itr_k)
-    for itr_n in 0..<int(N):
-      result[itr_k] += coef*ind[itr_n]*cos(PI/N*float(itr_n)*(k+0.5))
-
-# moving cosine filter
-proc mcf*(ind: Indicator, itr: int, period: int, filterCoef: float = 0.125, interpoleCoef: int = 4): float =
-  if itr < period:
-    return NaN
-  let filterNum = int(float(period)*filterCoef)
-  let signal = raisedCosineInterpolation2(ind[itr-period..itr], interpoleCoef)
-  return adjustPower(idct(wFilter(dct(signal), filterNum)), signal)[^1]
 
 
 proc main(pt: var PhaseTimer) =
@@ -229,7 +112,7 @@ proc main(pt: var PhaseTimer) =
       signal = raisedCosineInterpolation2(ohlc.close, P)
     else:
       if period <= 1:
-        signal = lc[x-meanStatic(ohlc.close) | (x <- ohlc.close), float]
+        signal = lc[x-mean(ohlc.close) | (x <- ohlc.close), float]
       else:
         for i in 0..<ohlc.close.len:
           if i < period-1:

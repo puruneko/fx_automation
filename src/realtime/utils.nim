@@ -52,3 +52,9 @@ proc recordProcTime*(basePath: string, procTime: float) =
     let ns = nowString()
     let newLine = "\n"
     fp.write(fmt"{ns},{procTime}{newLine}")
+
+proc indexOf*[T](sequence: openArray[T], target: T): int =
+  for index, s in sequence:
+    if s == target:
+      return index
+  return high(int)

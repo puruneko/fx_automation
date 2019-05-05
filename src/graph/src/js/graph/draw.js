@@ -78,7 +78,7 @@ export default class Draw extends React.Component {
                 xAxis: this.state.xAxis,
                 //xAxis: { ordinal: true, },
                 yAxis: this.state.yAxis.map((axis, index) => {
-                    if (true) {
+                    if (index < 2) {
                         return axis
                     }
                     else {

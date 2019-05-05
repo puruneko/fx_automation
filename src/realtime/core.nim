@@ -1,6 +1,7 @@
 import sugar
 import os
 import system
+import macros
 import nre
 import times
 import math
@@ -8,6 +9,7 @@ import tables
 import strutils
 import sequtils
 import strformat
+import typetraits
 
 ############ variable constant (they will be overriden)
 var pips* = 0.0001
@@ -15,8 +17,7 @@ var loadHistorical_start* = 0
 var loadHistorical_end* = 25000
 
 ############ static constant
-let emptySetting* = initTable[string, string]()
-let emptyArgument* = initTable[string, string]()
+#nop
 
 ## TODO:OHLCクラスを作る！
 # 将来更新される系はObject、更新されないものはTuple
@@ -48,7 +49,7 @@ type
 
   Indicator* = seq[float]
   IndicatorArgument* = Table[string, string]
-  IndicatorProc* = proc (indicators: Indicators, itr: int, args: IndicatorArgument): float
+  IndicatorProc* = proc (indicators: ptr Indicators, itr: int, args: IndicatorArgument): float
   IndicatorSettings* = Table[string, string]
   Indicators* = object
     val*: OrderedTable[string, Indicator]
@@ -67,8 +68,8 @@ type
     unrealizedLoss: float
   TradePayOff* = seq[TradePayOffContents]
 
-  TakeConditionProc* = proc(inds:Indicators, itr:int): DirectionType
-  ReleaseConditionProc* = proc(inds:Indicators, itr:int, takeRecord: TradeRecord): DirectionType
+  TakeConditionProc* = proc(inds: ptr Indicators, itr:int): DirectionType
+  ReleaseConditionProc* = proc(inds: ptr Indicators, itr:int, takeRecord: TradeRecord): DirectionType
   #TradeTactics* = tuple[take:TakeConditionProc, release:ReleaseConditionProc]
   TradeTactics* = object
     take*: TakeConditionProc
@@ -93,17 +94,57 @@ proc newIndicators*(): Indicators =
   result.stg = initOrderedTable[string, IndicatorSettings]()
   result.adr = initTable[string, ptr Indicator]()
 
-method `[]`*(inds: Indicators, label: string): Indicator {.base.} =
-  return inds.val[label]
+proc `[]`*(inds: Indicators, label: string): Indicator =
+  inds.val[label]
 
-method `[]`*(inds: Indicators, label: string, itr: int): float {.base.} =
-  return inds.val[label][itr]
+proc `[]`*(inds: ptr Indicators, label: string): Indicator =
+  inds[].val[label]
 
-method `[]`*(inds: Indicators, label: string, slice: HSlice): seq[float] {.base.} =
-  return inds.val[label][slice]
+proc `[]`*(inds: Indicators, label: string, itr: int): float =
+  inds.val[label][itr]
+
+proc `[]`*(inds: ptr Indicators, label: string, itr: int): float =
+  inds[].val[label][itr]
+
+proc `[]`*(inds: Indicators, label: string, slice: HSlice): seq[float] =
+  inds.val[label][slice]
+
+proc `[]`*(inds: ptr Indicators, label: string, slice: HSlice): seq[float] =
+  inds[].val[label][slice]
+
+proc `[]=`*(inds: var Indicators, label: string, val: Indicator) =
+  inds.val[label] = val
+
+proc `[]=`*(inds: ptr Indicators, label: string, val: Indicator) =
+  inds[].val[label] = val
+
+proc `[]=`*(inds: var ptr Indicators, label: string, val: Indicator) =
+  inds[].val[label] = val
+
+proc `[]=`*(inds: var Indicators, label: string, itr: int, val: float) =
+  inds.val[label][itr] = val
+
+proc `[]=`*(inds: ptr Indicators, label: string, itr: int, val: float) =
+  inds[].val[label][itr] = val
+
+proc `[]=`*(inds: var ptr Indicators, label: string, itr: int, val: float) =
+  inds[].val[label][itr] = val
+
+proc `[]=`*(inds: var Indicators, label: string, slice: HSlice, val: seq[float]) =
+  inds.val[label][slice] = val
+
+proc `[]=`*(inds: ptr Indicators, label: string, slice: HSlice, val: seq[float]) =
+  inds[].val[label][slice] = val
+
+proc `[]=`*(inds: var ptr Indicators, label: string, slice: HSlice, val: seq[float]) =
+  inds[].val[label][slice] = val
+
 
 # dynamic
-method push*(self: var Indicators, id: string, prc: IndicatorProc, arg: IndicatorArgument = emptyArgument, stg: IndicatorSettings = emptySetting): Indicators {.discardable, base.} =
+let emptyIndicator* = proc(indicators: ptr Indicators, itr: int, args: IndicatorArgument): float = NaN
+let emptySetting* = initTable[string, string]()
+let emptyArgument* = initTable[string, string]()
+method push*(self: var Indicators, id: string, prc: IndicatorProc = emptyIndicator, arg: IndicatorArgument = emptyArgument, stg: IndicatorSettings = emptySetting): Indicators {.discardable, base.} =
   self.val[id] = newIndicator()
   self.prc[id] = prc
   self.arg[id] = arg
@@ -117,6 +158,15 @@ method push*(self: var Indicators, id: string, adr: ptr Indicator, stg: Indicato
   self.stg[id] = stg
   self.stg[id]["updateSpecification"] = "static"
 
+# void
+method pushEmpty*(self: var Indicators, id: string, stg: IndicatorSettings = emptySetting): Indicators {.discardable, base.} =
+  self.val[id] = newIndicator()
+  self.prc[id] = emptyIndicator
+  self.arg[id] = emptyArgument
+  self.arg[id]["selfIndicator"] = id
+  self.stg[id] = stg
+
+# delete
 method del*(self: var Indicators, id: string) {.base.} =
   self.val.del(id)
   self.prc.del(id)
@@ -128,18 +178,23 @@ method addSettings*(self: var Indicators, id: string, stg: IndicatorSettings) {.
   for key, value in stg.pairs():
     self.stg[id][key] = value
 
-method update(self: var Indicators, id: string, itr: int, args: IndicatorArgument) {.base.} =
-  self.val[id].add(self.prc[id](self, itr, args))
+method update(self: ptr Indicators, id: string, itr: int, args: IndicatorArgument) {.base.} =
+  self[].val[id].add(self.prc[id](self, itr, args))
 
-method updateStatic(self: var Indicators, id: string, adr: ptr Indicator, itr: int) {.base.} =
-  self.val[id].add(adr[][itr])
+method updateStatic(self: ptr Indicators, id: string, adr: ptr Indicator, itr: int) {.base.} =
+  self[].val[id].add(adr[][itr])
 
-method updateAll*(self: var Indicators, itr: int) {.base.} =
+method updateAll*(self: ptr Indicators, itr: int) {.base.} =
   for key in self.val.keys():
-    if self.stg[key].hasKey("updateSpecification") and self.stg[key]["updateSpecification"] == "static":
-      self.updateStatic(key, self.adr[key], itr)
-    else:
-      self.update(key, itr, self.arg[key])
+    try:
+      if self.stg[key].hasKey("updateSpecification") and self.stg[key]["updateSpecification"] == "static":
+        self.updateStatic(key, self.adr[key], itr)
+      else:
+        self.update(key, itr, self.arg[key])
+    except:
+      echo(fmt"!!! catch in updateAll at {key} !!!")
+      echo(getCurrentExceptionMsg())
+      raise getCurrentException()
 
 ###########
 proc newTradeRecord*(): TradeRecord {.inline.} =

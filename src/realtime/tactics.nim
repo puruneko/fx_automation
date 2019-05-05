@@ -61,3 +61,6 @@ proc numericCross*(ind: Indicator, itr: int, numeric: float = 0.0): int =
   elif ind[itr-1] >= numeric and ind[itr] < numeric:
     return -1
   return 0
+
+proc between*(ind: Indicator, itr: int, bottom: float, top: float): bool =
+  return bottom <= ind[itr] and ind[itr] <= top

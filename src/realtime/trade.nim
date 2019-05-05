@@ -12,7 +12,9 @@ import strformat
 import "./core"
 import "./utils"
 import "./extraMath"
+import "./phaseTimer"
 
+var trade_flag* = true
 var tradeSpread* = 5*pips
 
 proc calcPayOff*(takePoint: float, releasePoint: float, pos: DirectionType): float =
@@ -148,7 +150,7 @@ proc exportResult(exportPath: string, time: ptr TimeSeries, inds: ptr Indicators
 
   echo("<----- export end")
 
-proc execTrading*(time: TimeSeries, inds: var Indicators, conditions: TradeTacticses, exportPath: string) =
+proc execTrading*(time: TimeSeries, inds: var Indicators, conditions: TradeTacticses, exportPath: string, pt: PhaseTimer) =
   let tradeLen = time.len
   var tradeRecordTable: TradeRecordTable = newTradeRecordTable()
   var positions: TradePositions = newTradePositions()
@@ -159,28 +161,32 @@ proc execTrading*(time: TimeSeries, inds: var Indicators, conditions: TradeTacti
   try:
     for itr in countup(0, tradeLen-1):
       # インジケータのアップデート
-      inds.updateAll(itr)
+      updateAll(unsafeAddr(inds), itr)
       for name, condition in conditions.pairs():
         # ポジションがない場合
         if not positions.hasKey(name):
-          # ポジションを取れる条件下か計算
-          let take = condition.take(inds, itr)
-          # ポジションを取れる場合
-          if take != DirectionType.nop:
-            # 新しいポジションの作成
-            positions[name] = newTradePosition()
-            # ポジションの記録
-            recordTrade(tradeRecordTable[name],
-                        positions,
-                        name,
-                        time[itr],
-                        KindType.take,
-                        take,
-                        inds.val["close"][itr])
+          if trade_flag:
+            # ポジションを取れる条件下か計算
+            let take = condition.take(unsafeAddr(inds), itr)
+            # ポジションを取れる場合
+            if take != DirectionType.nop:
+              # 新しいポジションの作成
+              positions[name] = newTradePosition()
+              # ポジションの記録
+              recordTrade(tradeRecordTable[name],
+                          positions,
+                          name,
+                          time[itr],
+                          KindType.take,
+                          take,
+                          inds.val["close"][itr])
+              pt.msg(fmt"take position[{name}]")
+            else:
+              tradeRecordTable[name].nop()
           else:
             tradeRecordTable[name].nop()
         else:
-          let release = condition.release(inds, itr, positions[name].take)
+          let release = condition.release(unsafeAddr(inds), itr, positions[name].take)
           if release != DirectionType.nop:
             recordTrade(tradeRecordTable[name],
                         positions,
@@ -190,20 +196,23 @@ proc execTrading*(time: TimeSeries, inds: var Indicators, conditions: TradeTacti
                         release,
                         inds.val["close"][itr])
             let benefit = payOff(payoff, positions, name)
-            echo(fmt"Paying off has be accomplished![{name}]")
-            echo(fmt"    (benefit: {int(benefit/pips)}[pips])(PROGRESS:{int(itr/tradeLen*100)}[%])")
+
+            pt.msg(fmt"release position[{name}](benefit: {int(benefit/pips)}[pips])")
           else:
             updateUnrealizedPoint(positions, name, inds.val["close"][itr])
             tradeRecordTable[name].nop()
+      if itr mod int(tradeLen/10) == 0:
+        let percentage = int(itr/tradeLen*100)
+        pt.msg(fmt"PROGRESS:{percentage} [%]", true)
   except:
-    echo(getCurrentExceptionMsg())
+    echo("!!! catch in execTrade !!!\n", getCurrentExceptionMsg())
     raise getCurrentException()
   let winPips = sum(lc[po.benefit | (po <- payoff), float])/pips
   let win = (lc[p.benefit | (p <- payOff, p.benefit > 0), float]).len
-  echo(fmt"---|")
-  echo(fmt"---| RESULT:{winPips}")
-  echo(fmt"---|        {win}/{payoff.len}")
-  echo(fmt"---|")
+  pt.msg("")
+  let msg = fmt"RESULT:{winPips}{'\n'}{' '.repeat(13)}{win}/{payoff.len}{'\n'}{' '.repeat(13)}{tradeLen} poins has be analysed."
+  pt.msg(msg)
+  pt.msg("")
 
   echo("-----> export start")
   exportResult(exportPath, unsafeAddr(time), unsafeAddr(inds), unsafeAddr(tradeRecordTable), unsafeAddr(payOff))

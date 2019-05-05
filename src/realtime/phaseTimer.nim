@@ -3,6 +3,7 @@ import tables
 import strutils
 import strformat
 import macros
+import queues
 
 type
   PhaseTimer* = object
@@ -11,6 +12,7 @@ type
     inPostfix: string
     outPostfix: string
     levelIncreament: int
+    labels: Queue[string]
 
 proc initPhaseTimer*(inPostfix: string = "start.", outPostfix: string = "end.", levelIncreament: int = 2): PhaseTImer =
   result.time = initTable[string, float]()
@@ -18,14 +20,20 @@ proc initPhaseTimer*(inPostfix: string = "start.", outPostfix: string = "end.", 
   result.inPostfix = inPostfix
   result.outPostfix = outPostfix
   result.levelIncreament = levelIncreament
+  result.labels = initQueue[string]()
 
 method enterProcess(pt: var PhaseTimer, label: string) {.base.} =
   pt.time[label] = cpuTime()
   pt.level += pt.levelIncreament
+  pt.labels.add(label)
 
 method leaveProcess(pt: var PhaseTimer, label: string) {.base.} =
   pt.time.del(label)
   pt.level -= pt.levelIncreament
+  pt.labels.pop()
+
+method lastLabel(pt: PhaseTimer): string {.base.} =
+  return pt.labels.back()
 
 method progressTime*(pt: PhaseTimer, label: string): float {.base.} =
   return cpuTime() - pt.time[label]
@@ -41,19 +49,24 @@ method leave*(pt: var PhaseTimer, msg: string) {.base.} =
   echo(fmt"<{bar} {msg} {pt.outPostfix}({progressTime:1.3f}[s])")
   pt.leaveProcess(msg)
 
-method msg*(pt: PhaseTimer, msg: string, disp: string, displayTime: bool = false) {.base.} =
+method msg*(pt: PhaseTimer, disp: string, displayTime: bool = false) {.base.} =
   let bar = "-".repeat(pt.level)
-  let progressTime: string = if displayTime: $(pt.progressTime(msg)) else: ""
-  echo(fmt"{bar}| {disp} {pt.outPostfix}({progressTime:1.3f}[s])")
+  let label = pt.lastLabel()
+  let progressTimeMsg = if displayTime: fmt"({pt.progressTime(label):1.3f}[s])" else: ""
+  echo(fmt"{bar}| {disp} {progressTimeMsg}")
 
 method getLevel*(pt: PhaseTimer): int {.base.} =
   return pt.level
 
 template phase*(pt: var PhaseTimer, label: string, body: untyped) =
   block:
-    pt.enter(label)
-    body
-    pt.leave(label)
+    try:
+      pt.enter(label)
+      body
+      pt.leave(label)
+    except:
+      echo(getCurrentExceptionMsg())
+      raise getCurrentException()
 
 
 if isMainModule:
